@@ -81,8 +81,10 @@ const showTable = (table) => {
 const padAndColorize = showColors
 ? (quote, store) => field => {
   if(field === 'change') return quote[field]
-  const last = store.prev[quote.symbol]?.[field] || ''
-  const actual = quote[field]
+  if(field === 'symbol') return quote[field].padEnd(store.pads[field]) //fixme
+
+  const last = Number(store.prev[quote.symbol]?.[field]) || ''
+  const actual = Number(quote[field])
   const color = last === actual ? colorMarks.same
     : last > actual ? colorMarks.down
     : colorMarks.up
