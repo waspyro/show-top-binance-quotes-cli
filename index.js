@@ -56,8 +56,7 @@ const setQuoteIndexAndChangeSymbol = oldData => (quote, newPosition) => {
     : changeSymbol.down
 }
 
-//can sort by ASCII or by Number value ether way should work the same
-const sortQuotesBy = (field, posA = -1, posB = 1) => (a, b) => a[field] > b[field] ? posA : posB
+const sortQuotesBy = (field, posA = -1, posB = 1) => (a, b) => Number(a[field]) > Number(b[field]) ? posA : posB
 
 const showListingsTable = (json) => {
   const data = json.data.map(translate) //translate a data to human-readable format
