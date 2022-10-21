@@ -1,5 +1,8 @@
 import WebSocket from 'ws'
 
+const showTop = Number(process.argv[2]) || 20
+const showColors = Number(process.argv[3]) && true
+
 const subTo1hTickerReq = `{
   "method": "SUBSCRIBE",
   "params": ["!ticker_1h@arr"],
@@ -13,6 +16,7 @@ const ws = new WebSocket('wss://stream.binance.com/stream')
     if(json.stream) showListingsTable(json)
   })
 
+const old = {}
 const cache = {}
 const pads = {
   symbol: 0,
@@ -28,18 +32,17 @@ const pads = {
 
 const showListingsTable = (json) => {
   const data = json.data.map(translate)
-  for(const quote of data)
-    cache[quote.symbol] = quote
+  Object.assign(old, cache)
+  for(const quote of data) cache[quote.symbol] = quote
 
   const quotes = Object.values(cache)
     .sort((a,b) => Number(a.priceChangePercent) > Number(b.priceChangePercent) ? -1 : 1)
-  quotes.length = process.argv[2] || 10 //limit to top X
+  quotes.length = showTop //limit to top X
   updatePaddings(quotes, pads) //using cached paddings just so table not jumps between updates like ебанутая
 
   const table = quotes
     .map(quote => Object.keys(pads)
-      .map(field => String(quote[field])
-        .padEnd(pads[field]))
+      .map(padAndColorize(quote))
       .join(' | '))
     .join('\n')
 
@@ -56,6 +59,17 @@ const updatePaddings = (quotes, fields = {symbol: 0, lastPrice: 0, priceChangePe
 
   return fields
 }
+
+const padAndColorize = showColors
+? quote => field => {
+  const last = old[quote.symbol]?.[field] || ''
+  const actual = quote[field]
+  const color = last === actual ? ''
+    : last > actual ? marks.down
+      : marks.up
+  return color + String(quote[field]).padEnd(pads[field]) + RESET
+}
+: quote => field => String(quote[field]).padEnd(pads[field])
 
 const translate = el => Object.fromEntries(Object.keys(dict).map(key => [dict[key], el[key]]))
 
@@ -77,4 +91,22 @@ const dict = {
   "F": 'firstTradeID',
   "L": 'lastTradeID',
   "n": 'totalNumberOfTrades'
+}
+
+const RESET = '\x1b[0m'
+
+const COLORS = {
+  'black': "\x1b[30m",
+  'red': "\x1b[31m",
+  'green': "\x1b[32m",
+  'yellow': "\x1b[33m",
+  'blue': "\x1b[34m",
+  'magenta': "\x1b[35m",
+  'cyan': "\x1b[36m",
+  'white': "\x1b[37m",
+}
+
+const marks = {
+  up: COLORS.green,
+  down: COLORS.red
 }
