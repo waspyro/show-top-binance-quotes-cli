@@ -33,7 +33,7 @@ const showListingsTable = (json) => {
 
   const quotes = Object.values(cache)
     .sort((a,b) => Number(a.priceChangePercent) > Number(b.priceChangePercent) ? -1 : 1)
-  quotes.length = 25 //limit to top 25
+  quotes.length = process.argv[2] || 10 //limit to top X
   updatePaddings(quotes, pads) //using cached paddings just so table not jumps between updates like ебанутая
 
   const table = quotes
