@@ -1,112 +1,94 @@
 import WebSocket from 'ws'
+import {
+  changeSymbol,
+  showTop,
+  showColors,
+  colorMarks,
+  sortBy,
+  showRowsInThatOrder,
+  sortOrder,
+  borderColor
+} from './settings.js'
 
-const showTop = Number(process.argv[2]) || 20
-const showColors = Number(process.argv[3]) && true
-
-const subTo1hTickerReq = `{
+import {COLOR_RESET, BINANCE_DICT} from "./constants.js";
+const subTo1hTickerMsg = `{
   "method": "SUBSCRIBE",
   "params": ["!ticker_1h@arr"],
   "id": 1
 }`
 
 const ws = new WebSocket('wss://stream.binance.com/stream')
-  .on('open', () => ws.send(subTo1hTickerReq))
+  .on('open', () => ws.send(subTo1hTickerMsg))
   .on('message', msg => {
     const json = JSON.parse(msg)
     if(json.stream) showListingsTable(json)
   })
 
-const old = {}
-const cache = {}
-const pads = {
-  symbol: 0,
-  lastPrice: 0,
-  priceChangePercent: 0,
-  // openPrice: 0,
-  // highPrice: 0,
-  // lowPrice: 0,
-  weightedAveragePrice: 0,
-  totalTradedBaseAssetVolume: 0,
-  totalTradedQuoteAssetVolume: 0,
+function Store(rows) {
+  this.rows = rows
+  this.pads = Object.fromEntries(rows.map(e => [e, 0]))
+  this.prev = {}
+  this.curr = {}
+
+  this.updateData = (newData) => {
+    Object.assign(this.prev, this.curr)
+    for(const quote of newData) this.curr[quote.symbol] = quote
+    return this
+  }
+
+  this.updatePads = (quotes) => {
+    for(const quote of quotes)
+    for(const key of rows)
+      if(quote?.[key]?.length > this.pads[key])
+        this.pads[key] = quote[key].length + 1
+    return this
+  }
+
 }
 
+const store = new Store(showRowsInThatOrder)
+
+const setQuoteIndexAndChangeSymbol = oldData => (quote, newPosition) => {
+  const oldPosition = oldData[quote.symbol]?.index || '0'
+  quote.index = String(newPosition + 1)
+  quote.change = oldPosition === quote.index ? changeSymbol.same
+    : oldPosition >  quote.index ? changeSymbol.up
+    : changeSymbol.down
+}
+
+//can sort by ASCII or by Number value ether way should work the same
+const sortQuotesBy = (field, posA = -1, posB = 1) => (a, b) => a[field] > b[field] ? posA : posB
+
 const showListingsTable = (json) => {
-  const data = json.data.map(translate)
-  Object.assign(old, cache)
-  for(const quote of data) cache[quote.symbol] = quote
+  const data = json.data.map(translate) //translate a data to human-readable format
+  store.updateData(data) //update local storage data
+  const sortedQuotes = Object.values(store.curr).sort(sortQuotesBy(sortBy, ...sortOrder)) //sort updated data
+  sortedQuotes.forEach(setQuoteIndexAndChangeSymbol(store.prev)) //update indexes and get position change compared to previous index
+  sortedQuotes.length = showTop //limit sorted results to top X
+  store.updatePads(sortedQuotes) //update paddings for table
+  showTable(drawTable(sortedQuotes, store)) //render and show table
+}
 
-  const quotes = Object.values(cache)
-    .sort((a,b) => Number(a.priceChangePercent) > Number(b.priceChangePercent) ? -1 : 1)
-  quotes.length = showTop //limit to top X
-  updatePaddings(quotes, pads) //using cached paddings just so table not jumps between updates like ебанутая
+const drawTable = (quotes, store) => quotes
+  .map(quote => store.rows.map(padAndColorize(quote, store)))
+  .map(([change, ...other]) => change + other.join(borderColor + ' | ' + COLOR_RESET)) //fixme
+  .join('\n')
 
-  const table = quotes
-    .map(quote => Object.keys(pads)
-      .map(padAndColorize(quote))
-      .join(' | '))
-    .join('\n')
-
+const showTable = (table) => {
   console.clear()
   console.log(table)
 }
 
-const updatePaddings = (quotes, fields = {symbol: 0, lastPrice: 0, priceChangePercent: 0}) => {
-  for(const quote of quotes)
-  for(const key of Object.keys(fields)) {
-    if(quote?.[key]?.length > fields[key])
-      fields[key] = quote[key].length + 1
-  }
-
-  return fields
-}
-
 const padAndColorize = showColors
-? quote => field => {
-  const last = old[quote.symbol]?.[field] || ''
+? (quote, store) => field => {
+  if(field === 'change') return quote[field]
+  const last = store.prev[quote.symbol]?.[field] || ''
   const actual = quote[field]
-  const color = last === actual ? ''
-    : last > actual ? marks.down
-      : marks.up
-  return color + String(quote[field]).padEnd(pads[field]) + RESET
+  const color = last === actual ? colorMarks.same
+    : last > actual ? colorMarks.down
+    : colorMarks.up
+  return color + String(quote[field]).padEnd(store.pads[field]) + COLOR_RESET
 }
-: quote => field => String(quote[field]).padEnd(pads[field])
+: (quote, store) => field => String(quote[field]).padEnd(store.pads[field])
 
-const translate = el => Object.fromEntries(Object.keys(dict).map(key => [dict[key], el[key]]))
-
-const dict = {
-  "e": 'eventType',
-  "E": 'eventTime',
-  "s": 'symbol',
-  "p": 'priceChange',
-  "P": 'priceChangePercent',
-  "o": 'openPrice',
-  "h": 'highPrice',
-  "l": 'lowPrice',
-  "c": 'lastPrice',
-  "w": 'weightedAveragePrice',
-  "v": 'totalTradedBaseAssetVolume',
-  "q": 'totalTradedQuoteAssetVolume',
-  "O": 'statisticsOpenTime',
-  "C": 'statisticsCloseTime',
-  "F": 'firstTradeID',
-  "L": 'lastTradeID',
-  "n": 'totalNumberOfTrades'
-}
-
-const RESET = '\x1b[0m'
-
-const COLORS = {
-  'black': "\x1b[30m",
-  'red': "\x1b[31m",
-  'green': "\x1b[32m",
-  'yellow': "\x1b[33m",
-  'blue': "\x1b[34m",
-  'magenta': "\x1b[35m",
-  'cyan': "\x1b[36m",
-  'white': "\x1b[37m",
-}
-
-const marks = {
-  up: COLORS.green,
-  down: COLORS.red
-}
+const translate = el => Object.fromEntries(Object.keys(BINANCE_DICT).map(key => [BINANCE_DICT[key], el[key]]))
